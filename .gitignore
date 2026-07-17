@@ -1,0 +1,8 @@
+*.back
+.vscode/
+.idea/
+*.swp
+*.swo
+tmp/
+.superpowers/
+.opencode/
