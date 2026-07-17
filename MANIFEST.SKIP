@@ -1,0 +1,57 @@
+# Avoid version control files.
+\bRCS\b
+\bCVS\b
+\bSCCS\b
+,v$
+\B\.svn\b
+\B\.git\b
+\B\.gitignore\b
+\b_darcs\b
+
+# Avoid Makemaker generated and utility files.
+\bMANIFEST\.bak
+\bMakefile$
+\bblib/
+\bMakeMaker-\d
+\bpm_to_blib\.ts$
+\bpm_to_blib$
+\bblibdirs\.ts$         # 6.18 through 6.25 generated this
+
+# Avoid Module::Build generated and utility files.
+\bBuild$
+\b_build/
+
+# Avoid temp and backup files.
+~$
+\.old$
+\#$
+\b\.#
+\.bak$
+\.swp$
+
+# Avoid Devel::Cover files.
+\bcover_db\b
+
+tmp/
+t/tmp/
+MYMETA\.json
+MYMETA\.yml$
+\.tar\.gz$
+
+# Avoid build/release artifacts.
+^docs/
+^inc/
+\.github/
+
+# Avoid test mock modules.
+t/lib/RT
+
+# Avoid author and release tests.
+t/994_version\.t
+t/995_manifest\.t
+t/996_perl-tidy\.t
+t/997_perl-critic\.t
+t/998_pod-checker\.t
+t/999_pod-coverage\.t
+t/perlcriticrc
+t/perltidyrc

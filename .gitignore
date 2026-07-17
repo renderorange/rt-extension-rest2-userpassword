@@ -6,3 +6,7 @@
 tmp/
 .superpowers/
 .opencode/
+docs/
+
+# inc/.author is a runtime artifact, not for version control
+inc/.author/

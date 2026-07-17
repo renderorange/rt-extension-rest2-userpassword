@@ -1,0 +1,79 @@
+NAME
+
+    RT-Extension-REST2-UserPassword - Password update endpoint for the
+    REST2 API
+
+DESCRIPTION
+
+    This extension adds a REST2 endpoint for updating user passwords:
+
+        PUT /user/:id/password
+        Content-Type: application/json
+    
+        {"Password": "newpassword"}
+
+    Requires AdminUsers right or updating own password.
+
+RT VERSION
+
+    Works with RT 6.
+
+INSTALLATION
+
+    perl Makefile.PL
+
+    make
+
+    make install
+
+    Edit your /opt/rt6/etc/RT_SiteConfig.pm
+
+      Add this line:
+
+          Plugin('RT::Extension::REST2::UserPassword');
+
+    Restart your webserver
+
+USAGE
+
+ Updating Passwords
+
+    To update a user's password, send a PUT request with the new password
+    in JSON format:
+
+        curl -X PUT
+             -H "Content-Type: application/json"
+             -H "Authorization: token XX_TOKEN_XX"
+             -d '{"Password": "newpassword"}'
+             'https://rt.example.com/REST/2.0/user/123/password'
+
+    If successful, you'll receive:
+
+        {"message": "Password updated"}
+
+    Requires either the AdminUsers right or updating your own password.
+
+ENDPOINTS
+
+ PUT /user/:id/password
+
+        PUT /user/:id/password
+            update a user's password; provide JSON content
+
+    The JSON payload must include:
+
+        Password
+            The new password string. Required.
+
+AUTHOR
+
+    Blaine Motsinger <blaine@renderorange.com>
+
+LICENSE AND COPYRIGHT
+
+    This software is Copyright (c) 2026 by Blaine Motsinger
+
+    This is free software, licensed under:
+
+      The GNU General Public License, Version 2, June 1991
+

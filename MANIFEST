@@ -1,0 +1,9 @@
+Changes
+LICENSE
+Makefile.PL
+MANIFEST
+MANIFEST.SKIP
+lib/RT/Extension/REST2/UserPassword.pm
+lib/RT/REST2/Resource/UserPassword.pm
+t/00_load.t
+t/resource-userpassword.t
