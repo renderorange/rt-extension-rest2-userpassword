@@ -1,4 +1,7 @@
 Revision history for RT-Extension-REST2-UserPassword
 
+1.01	2026-07-18
+	- GH-2: add build script
+
 1.00    2026-07-17
         - GH-1: add initial version

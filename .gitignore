@@ -7,6 +7,10 @@ tmp/
 .superpowers/
 .opencode/
 docs/
-
-# inc/.author is a runtime artifact, not for version control
 inc/.author/
+blib/
+pm_to_blib
+RT-Extension-REST2-UserPassword-*.tar.gz
+MYMETA.json
+MYMETA.yml
+Makefile

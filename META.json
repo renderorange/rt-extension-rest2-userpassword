@@ -1,0 +1,59 @@
+{
+   "abstract" : "Password update endpoint for the REST2 API",
+   "author" : [
+      "Blaine Motsinger <blaine@renderorange.com>"
+   ],
+   "dynamic_config" : 0,
+   "generated_by" : "Module::Install version 1.21",
+   "license" : "gpl_2",
+   "meta-spec" : {
+      "url" : "https://metacpan.org/pod/CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "RT-Extension-REST2-UserPassword",
+   "no_index" : {
+      "directory" : [
+         "etc",
+         "html",
+         "static",
+         "bin",
+         "sbin",
+         "po",
+         "var"
+      ]
+   },
+   "prereqs" : {
+      "runtime" : {
+         "requires" : {
+            "perl" : "5.008003"
+         }
+      }
+   },
+   "provides" : {
+      "RT::Extension::REST2::UserPassword" : {
+         "file" : "lib/RT/Extension/REST2/UserPassword.pm",
+         "version" : "1.01"
+      },
+      "RT::REST2::Resource::UserPassword" : {
+         "file" : "lib/RT/REST2/Resource/UserPassword.pm",
+         "version" : "1.01"
+      }
+   },
+   "release_status" : "stable",
+   "resources" : {
+      "bugtracker" : {
+         "web" : "https://github.com/renderorange/rt-extension-rest2-userpassword/issues"
+      },
+      "license" : [
+         "http://opensource.org/licenses/gpl-2.0.php"
+      ],
+      "repository" : {
+         "type" : "git",
+         "url" : "https://github.com/renderorange/rt-extension-rest2-userpassword.git",
+         "web" : "https://github.com/renderorange/rt-extension-rest2-userpassword"
+      }
+   },
+   "version" : "1.01",
+   "x_requires_rt" : "6.0.0",
+   "x_rt_too_new" : "6.2.0"
+}

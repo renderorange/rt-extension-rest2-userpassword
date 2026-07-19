@@ -3,6 +3,7 @@ package RT::REST2::Resource::UserPassword;
 use strict;
 use warnings;
 
+use English qw(-no_match_vars);
 use Moose;
 use namespace::autoclean;
 use JSON ();
@@ -16,7 +17,7 @@ has 'user_id' => (
 );
 
 sub dispatch_rules {
-    Path::Dispatcher::Rule::Regex->new(
+    return Path::Dispatcher::Rule::Regex->new(
         regex => qr{^/user/([^/]+)/password/?$},
         block => sub {
             my ($match) = @_;
@@ -91,7 +92,7 @@ sub from_json {
     my $content = $self->request->content;
 
     my $params = eval { return JSON::decode_json($content) };
-    if ($@) {
+    if ($EVAL_ERROR) {
         return $self->_error(400, "Invalid JSON");
     }
 
@@ -135,3 +136,50 @@ sub _error {
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+__END__
+
+=head1 NAME
+
+RT::REST2::Resource::UserPassword - REST2 endpoint for user password updates
+
+=head1 DESCRIPTION
+
+Provides a REST2 resource for updating user passwords via C<PUT /user/:id/password>.
+
+=head1 METHODS
+
+=head2 dispatch_rules
+
+Returns the path dispatch rules matching C</user/:id/password>.
+
+=head2 forbidden
+
+Returns 1 if the current user lacks permission, 0 if permitted.
+Allowed when the user has C<AdminUsers> right or is updating their own password.
+
+=head2 resource_exists
+
+Returns 1 if the target user exists, 0 otherwise.
+
+=head2 allowed_methods
+
+Returns C<['PUT']>.
+
+=head2 content_types_provided
+
+Returns C<application/json>.
+
+=head2 content_types_accepted
+
+Returns C<application/json>.
+
+=head2 to_json
+
+Returns a JSON response indicating the password resource is available.
+
+=head2 from_json
+
+Parses the JSON request body and updates the target user's password.
+
+=cut

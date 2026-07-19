@@ -1,196 +1,451 @@
-package inc::Module::Install;
+#line 1
+package Module::Install;
 
-# This module ONLY loads if the user has manually installed their own
-# installation of Module::Install, and are some form of MI author.
+# For any maintainers:
+# The load order for Module::Install is a bit magic.
+# It goes something like this...
 #
-# It runs from the installed location, and is never bundled
-# along with the other bundled modules.
-#
-# So because the version of this differs from the version that will
-# be bundled almost every time, it doesn't have it's own version and
-# isn't part of the synchronisation-checking.
+# IF ( host has Module::Install installed, creating author mode ) {
+#     1. Makefile.PL calls "use inc::Module::Install"
+#     2. $INC{inc/Module/Install.pm} set to installed version of inc::Module::Install
+#     3. The installed version of inc::Module::Install loads
+#     4. inc::Module::Install calls "require Module::Install"
+#     5. The ./inc/ version of Module::Install loads
+# } ELSE {
+#     1. Makefile.PL calls "use inc::Module::Install"
+#     2. $INC{inc/Module/Install.pm} set to ./inc/ version of Module::Install
+#     3. The ./inc/ version of Module::Install loads
+# }
 
-use strict;
-use vars qw{$VERSION};
+use 5.006;
+use strict 'vars';
+use Cwd        ();
+use File::Find ();
+use File::Path ();
+
+use vars qw{$VERSION $MAIN};
 BEGIN {
-	# While this version will be overwritten when Module::Install
-	# loads, it remains so Module::Install itself can detect which
-	# version an author currently has installed.
-	# This allows it to implement any back-compatibility features
-	# it may want or need to.
+	# All Module::Install core packages now require synchronised versions.
+	# This will be used to ensure we don't accidentally load old or
+	# different versions of modules.
+	# This is not enforced yet, but will be some time in the next few
+	# releases once we can make sure it won't clash with custom
+	# Module::Install extensions.
 	$VERSION = '1.21';
+
+	# Storage for the pseudo-singleton
+	$MAIN    = undef;
+
+	*inc::Module::Install::VERSION = *VERSION;
+	@inc::Module::Install::ISA     = __PACKAGE__;
+
 }
 
-if ( -d './inc' ) {
-	my $author = $^O eq 'VMS' ? './inc/_author' : './inc/.author';
-	if ( -d $author ) {
-		my $modified_at = (stat($author))[9];
-		if ((time - $modified_at) > 24 * 60 * 60) {
-			# inc is a bit stale; there may be a newer Module::Install
-			_check_update($modified_at);
+sub import {
+	my $class = shift;
+	my $self  = $class->new(@_);
+	my $who   = $self->_caller;
+
+	#-------------------------------------------------------------
+	# all of the following checks should be included in import(),
+	# to allow "eval 'require Module::Install; 1' to test
+	# installation of Module::Install. (RT #51267)
+	#-------------------------------------------------------------
+
+	# Whether or not inc::Module::Install is actually loaded, the
+	# $INC{inc/Module/Install.pm} is what will still get set as long as
+	# the caller loaded module this in the documented manner.
+	# If not set, the caller may NOT have loaded the bundled version, and thus
+	# they may not have a MI version that works with the Makefile.PL. This would
+	# result in false errors or unexpected behaviour. And we don't want that.
+	my $file = join( '/', 'inc', split /::/, __PACKAGE__ ) . '.pm';
+	unless ( $INC{$file} ) { die <<"END_DIE" }
+
+Please invoke ${\__PACKAGE__} with:
+
+	use inc::${\__PACKAGE__};
+
+not:
+
+	use ${\__PACKAGE__};
+
+END_DIE
+
+	# This reportedly fixes a rare Win32 UTC file time issue, but
+	# as this is a non-cross-platform XS module not in the core,
+	# we shouldn't really depend on it. See RT #24194 for detail.
+	# (Also, this module only supports Perl 5.6 and above).
+	eval "use Win32::UTCFileTime" if $^O eq 'MSWin32' && $] >= 5.006;
+
+	# If the script that is loading Module::Install is from the future,
+	# then make will detect this and cause it to re-run over and over
+	# again. This is bad. Rather than taking action to touch it (which
+	# is unreliable on some platforms and requires write permissions)
+	# for now we should catch this and refuse to run.
+	if ( -f $0 ) {
+		my $s = (stat($0))[9];
+
+		# If the modification time is only slightly in the future,
+		# sleep briefly to remove the problem.
+		my $a = $s - time;
+		if ( $a > 0 and $a < 5 ) { sleep 5 }
+
+		# Too far in the future, throw an error.
+		my $t = time;
+		if ( $s > $t ) { die <<"END_DIE" }
+
+Your installer $0 has a modification time in the future ($s > $t).
+
+This is known to create infinite loops in make.
+
+Please correct this, then run $0 again.
+
+END_DIE
+	}
+
+
+	# Build.PL was formerly supported, but no longer is due to excessive
+	# difficulty in implementing every single feature twice.
+	if ( $0 =~ /Build.PL$/i ) { die <<"END_DIE" }
+
+Module::Install no longer supports Build.PL.
+
+It was impossible to maintain duel backends, and has been deprecated.
+
+Please remove all Build.PL files and only use the Makefile.PL installer.
+
+END_DIE
+
+	#-------------------------------------------------------------
+
+	# To save some more typing in Module::Install installers, every...
+	# use inc::Module::Install
+	# ...also acts as an implicit use strict.
+	$^H |= strict::bits(qw(refs subs vars));
+
+	#-------------------------------------------------------------
+
+	unless ( -f $self->{file} ) {
+		foreach my $key (keys %INC) {
+			delete $INC{$key} if $key =~ /Module\/Install/;
 		}
-		$Module::Install::AUTHOR = 1;
-		require File::Path;
-		File::Path::rmtree('inc');
+
+		local $^W;
+		require "$self->{path}/$self->{dispatch}.pm";
+		File::Path::mkpath("$self->{prefix}/$self->{author}");
+		$self->{admin} = "$self->{name}::$self->{dispatch}"->new( _top => $self );
+		$self->{admin}->init;
+		@_ = ($class, _self => $self);
+		goto &{"$self->{name}::import"};
 	}
-} else {
-	$Module::Install::AUTHOR = 1;
+
+	local $^W;
+	*{"${who}::AUTOLOAD"} = $self->autoload;
+	$self->preload;
+
+	# Unregister loader and worker packages so subdirs can use them again
+	delete $INC{'inc/Module/Install.pm'};
+	delete $INC{'Module/Install.pm'};
+
+	# Save to the singleton
+	$MAIN = $self;
+
+	return 1;
 }
 
-unshift @INC, 'inc' unless $INC[0] eq 'inc';
-local $^W;
-require Module::Install;
+sub autoload {
+	my $self = shift;
+	my $who  = $self->_caller;
+	my $cwd  = Cwd::getcwd();
+	my $sym  = "${who}::AUTOLOAD";
+	$sym->{$cwd} = sub {
+		my $pwd = Cwd::getcwd();
+		if ( my $code = $sym->{$pwd} ) {
+			# Delegate back to parent dirs
+			goto &$code unless $cwd eq $pwd;
+		}
+		unless ($$sym =~ s/([^:]+)$//) {
+			# XXX: it looks like we can't retrieve the missing function
+			# via $$sym (usually $main::AUTOLOAD) in this case.
+			# I'm still wondering if we should slurp Makefile.PL to
+			# get some context or not ...
+			my ($package, $file, $line) = caller;
+			die <<"EOT";
+Unknown function is found at $file line $line.
+Execution of $file aborted due to runtime errors.
 
-sub _check_update {
-	my $modified_at = shift;
+If you're a contributor to a project, you may need to install
+some Module::Install extensions from CPAN (or other repository).
+If you're a user of a module, please contact the author.
+EOT
+		}
+		my $method = $1;
+		if ( uc($method) eq $method ) {
+			# Do nothing
+			return;
+		} elsif ( $method =~ /^_/ and $self->can($method) ) {
+			# Dispatch to the root M:I class
+			return $self->$method(@_);
+		}
 
-	# XXX: We have several online services to get update information
-	# including search.cpan.org. They are more reliable than the
-	# 02packages.details.txt.gz on the local machine. We might be
-	# better to depend on those services... but on which?
+		# Dispatch to the appropriate plugin
+		unshift @_, ( $self, $1 );
+		goto &{$self->can('call')};
+	};
+}
 
-	my $cpan_version = 0;
-	if (0) {  # XXX: should be configurable?
-		my $url = "http://search.cpan.org/dist/Module-Install/META.yml";
-		eval "require YAML::Tiny; 1" or return;
+sub preload {
+	my $self = shift;
+	unless ( $self->{extensions} ) {
+		$self->load_extensions(
+			"$self->{prefix}/$self->{path}", $self
+		);
+	}
 
-		if (eval "require LWP::UserAgent; 1") {
-			my $ua = LWP::UserAgent->new(
-				timeout   => 10,
-				env_proxy => 1,
-			);
-			my $res = $ua->get($url);
-			return unless $res->is_success;
-			my $yaml = eval { YAML::Tiny::Load($res->content) } or return;
-			$cpan_version = $yaml->{version};
+	my @exts = @{$self->{extensions}};
+	unless ( @exts ) {
+		@exts = $self->{admin}->load_all_extensions;
+	}
+
+	my %seen;
+	foreach my $obj ( @exts ) {
+		while (my ($method, $glob) = each %{ref($obj) . '::'}) {
+			next unless $obj->can($method);
+			next if $method =~ /^_/;
+			next if $method eq uc($method);
+			$seen{$method}++;
 		}
 	}
-	else {
-		# If you don't want to rely on the net...
-		require File::Spec;
-		$cpan_version = _check_update_local($modified_at) or return;
-	}
 
-	# XXX: should die instead of warn?
-	warn <<"WARN" if $cpan_version > $VERSION;
-Newer version of Module::Install is available on CPAN.
-CPAN:  $cpan_version
-LOCAL: $VERSION
-Please upgrade.
-WARN
+	my $who = $self->_caller;
+	foreach my $name ( sort keys %seen ) {
+		local $^W;
+		*{"${who}::$name"} = sub {
+			${"${who}::AUTOLOAD"} = "${who}::$name";
+			goto &{"${who}::AUTOLOAD"};
+		};
+	}
 }
 
-sub _check_update_local {
-	my $modified_at = shift;
+sub new {
+	my ($class, %args) = @_;
 
-	return unless eval "require Compress::Zlib; 1";
-	_require_myconfig_or_config() or return;
-	my $file = File::Spec->catfile(
-		$CPAN::Config->{keep_source_where},
-		'modules',
-		'02packages.details.txt.gz'
-	);
-	return unless -f $file;
-#	return if (stat($file))[9] < $modified_at;
-
-	my $gz = Compress::Zlib::gzopen($file, 'r') or return;
-	my $line;
-	while($gz->gzreadline($line)) {
-		my ($cpan_version) = $line =~ /^Module::Install\s+(\S+)/ or next;
-		return $cpan_version;
+	delete $INC{'FindBin.pm'};
+	{
+		# to suppress the redefine warning
+		local $SIG{__WARN__} = sub {};
+		require FindBin;
 	}
-	return;
+
+	# ignore the prefix on extension modules built from top level.
+	my $base_path = Cwd::abs_path($FindBin::Bin);
+	unless ( Cwd::abs_path(Cwd::getcwd()) eq $base_path ) {
+		delete $args{prefix};
+	}
+	return $args{_self} if $args{_self};
+
+	$base_path = VMS::Filespec::unixify($base_path) if $^O eq 'VMS';
+
+	$args{dispatch} ||= 'Admin';
+	$args{prefix}   ||= 'inc';
+	$args{author}   ||= ($^O eq 'VMS' ? '_author' : '.author');
+	$args{bundle}   ||= 'inc/BUNDLES';
+	$args{base}     ||= $base_path;
+	$class =~ s/^\Q$args{prefix}\E:://;
+	$args{name}     ||= $class;
+	$args{version}  ||= $class->VERSION;
+	unless ( $args{path} ) {
+		$args{path}  = $args{name};
+		$args{path}  =~ s!::!/!g;
+	}
+	$args{file}     ||= "$args{base}/$args{prefix}/$args{path}.pm";
+	$args{wrote}      = 0;
+
+	bless( \%args, $class );
 }
 
-# adapted from CPAN::HandleConfig
-sub _require_myconfig_or_config {
-	return 1 if $INC{"CPAN/MyConfig.pm"};
-	local @INC = @INC;
-	my $home = _home() or return;
-	my $cpan_dir = File::Spec->catdir($home,'.cpan');
-	return unless -d $cpan_dir;
-	unshift @INC, $cpan_dir;
-	eval { require CPAN::MyConfig };
-	if ($@ and $@ !~ m#locate CPAN/MyConfig\.pm#) {
-		warn "Error while requiring CPAN::MyConfig:\n$@\n";
-		return;
-	}
-	return 1 if $INC{"CPAN/MyConfig.pm"};
-
-	eval { require CPAN::Config; };
-	if ($@ and $@ !~ m#locate CPAN/Config\.pm#) {
-		warn "Error while requiring CPAN::Config:\n$@\n";
-		return;
-	}
-	return 1 if $INC{"CPAN/Config.pm"};
-	return;
+sub call {
+	my ($self, $method) = @_;
+	my $obj = $self->load($method) or return;
+        splice(@_, 0, 2, $obj);
+	goto &{$obj->can($method)};
 }
 
-# adapted from CPAN::HandleConfig
-sub _home {
-	my $home;
-	if (eval {require File::HomeDir; 1}) {
-		$home = File::HomeDir->can('my_dot_config')
-			? File::HomeDir->my_dot_config
-			: File::HomeDir->my_data;
-		unless (defined $home) {
-			$home = File::HomeDir->my_home
+sub load {
+	my ($self, $method) = @_;
+
+	$self->load_extensions(
+		"$self->{prefix}/$self->{path}", $self
+	) unless $self->{extensions};
+
+	foreach my $obj (@{$self->{extensions}}) {
+		return $obj if $obj->can($method);
+	}
+
+	my $admin = $self->{admin} or die <<"END_DIE";
+The '$method' method does not exist in the '$self->{prefix}' path!
+Please remove the '$self->{prefix}' directory and run $0 again to load it.
+END_DIE
+
+	my $obj = $admin->load($method, 1);
+	push @{$self->{extensions}}, $obj;
+
+	$obj;
+}
+
+sub load_extensions {
+	my ($self, $path, $top) = @_;
+
+	my $should_reload = 0;
+	unless ( grep { ! ref $_ and lc $_ eq lc $self->{prefix} } @INC ) {
+		unshift @INC, $self->{prefix};
+		$should_reload = 1;
+	}
+
+	foreach my $rv ( $self->find_extensions($path) ) {
+		my ($file, $pkg) = @{$rv};
+		next if $self->{pathnames}{$pkg};
+
+		local $@;
+		my $new = eval { local $^W; require $file; $pkg->can('new') };
+		unless ( $new ) {
+			warn $@ if $@;
+			next;
 		}
+		$self->{pathnames}{$pkg} =
+			$should_reload ? delete $INC{$file} : $INC{$file};
+		push @{$self->{extensions}}, &{$new}($pkg, _top => $top );
 	}
-	unless (defined $home) {
-		$home = $ENV{HOME};
+
+	$self->{extensions} ||= [];
+}
+
+sub find_extensions {
+	my ($self, $path) = @_;
+
+	my @found;
+	File::Find::find( {no_chdir => 1, wanted => sub {
+		my $file = $File::Find::name;
+		return unless $file =~ m!^\Q$path\E/(.+)\.pm\Z!is;
+		my $subpath = $1;
+		return if lc($subpath) eq lc($self->{dispatch});
+
+		$file = "$self->{path}/$subpath.pm";
+		my $pkg = "$self->{name}::$subpath";
+		$pkg =~ s!/!::!g;
+
+		# If we have a mixed-case package name, assume case has been preserved
+		# correctly.  Otherwise, root through the file to locate the case-preserved
+		# version of the package name.
+		if ( $subpath eq lc($subpath) || $subpath eq uc($subpath) ) {
+			my $content = Module::Install::_read($File::Find::name);
+			my $in_pod  = 0;
+			foreach ( split /\n/, $content ) {
+				$in_pod = 1 if /^=\w/;
+				$in_pod = 0 if /^=cut/;
+				next if ($in_pod || /^=cut/);  # skip pod text
+				next if /^\s*#/;               # and comments
+				if ( m/^\s*package\s+($pkg)\s*;/i ) {
+					$pkg = $1;
+					last;
+				}
+			}
+		}
+
+		push @found, [ $file, $pkg ];
+	}}, $path ) if -d $path;
+
+	@found;
+}
+
+
+
+
+
+#####################################################################
+# Common Utility Functions
+
+sub _caller {
+	my $depth = 0;
+	my $call  = caller($depth);
+	while ( $call eq __PACKAGE__ ) {
+		$depth++;
+		$call = caller($depth);
 	}
-	$home;
+	return $call;
+}
+
+sub _read {
+	local *FH;
+	open( FH, '<', $_[0] ) or die "open($_[0]): $!";
+	binmode FH;
+	my $string = do { local $/; <FH> };
+	close FH or die "close($_[0]): $!";
+	return $string;
+}
+
+sub _readperl {
+	my $string = Module::Install::_read($_[0]);
+	$string =~ s/(?:\015{1,2}\012|\015|\012)/\n/sg;
+	$string =~ s/(\n)\n*__(?:DATA|END)__\b.*\z/$1/s;
+	$string =~ s/\n\n=\w+.+?\n\n=cut\b.+?\n+/\n\n/sg;
+	return $string;
+}
+
+sub _readpod {
+	my $string = Module::Install::_read($_[0]);
+	$string =~ s/(?:\015{1,2}\012|\015|\012)/\n/sg;
+	return $string if $_[0] =~ /\.pod\z/;
+	$string =~ s/(^|\n=cut\b.+?\n+)[^=\s].+?\n(\n=\w+|\z)/$1$2/sg;
+	$string =~ s/\n*=pod\b[^\n]*\n+/\n\n/sg;
+	$string =~ s/\n*=cut\b[^\n]*\n+/\n\n/sg;
+	$string =~ s/^\n+//s;
+	return $string;
+}
+
+sub _write {
+	local *FH;
+	open( FH, '>', $_[0] ) or die "open($_[0]): $!";
+	binmode FH;
+	foreach ( 1 .. $#_ ) {
+		print FH $_[$_] or die "print($_[0]): $!";
+	}
+	close FH or die "close($_[0]): $!";
+}
+
+# _version is for processing module versions (eg, 1.03_05) not
+# Perl versions (eg, 5.8.1).
+sub _version {
+	my $s = shift || 0;
+	my $d =()= $s =~ /(\.)/g;
+	if ( $d >= 2 ) {
+		# Normalise multipart versions
+		$s =~ s/(\.)(\d{1,3})/sprintf("$1%03d",$2)/eg;
+	}
+	$s =~ s/^(\d+)\.?//;
+	my $l = $1 || 0;
+	my @v = map {
+		$_ . '0' x (3 - length $_)
+	} $s =~ /(\d{1,3})\D?/g;
+	$l = $l . '.' . join '', @v if @v;
+	return $l + 0;
+}
+
+sub _cmp {
+	_version($_[1]) <=> _version($_[2]);
+}
+
+# Cloned from Params::Util::_CLASS
+sub _CLASS {
+	(
+		defined $_[0]
+		and
+		! ref $_[0]
+		and
+		$_[0] =~ m/^[^\W\d]\w*(?:::\w+)*\z/s
+	) ? $_[0] : undef;
 }
 
 1;
 
-__END__
-
-=pod
-
-=head1 NAME
-
-inc::Module::Install - Module::Install configuration system
-
-=head1 SYNOPSIS
-
-  use inc::Module::Install;
-
-=head1 DESCRIPTION
-
-This module first checks whether the F<inc/.author> directory exists,
-and removes the whole F<inc/> directory if it does, so the module author
-always get a fresh F<inc> every time they run F<Makefile.PL>.  Next, it
-unshifts C<inc> into C<@INC>, then loads B<Module::Install> from there.
-
-Below is an explanation of the reason for using a I<loader module>:
-
-The original implementation of B<CPAN::MakeMaker> introduces subtle
-problems for distributions ending with C<CPAN> (e.g. B<CPAN.pm>,
-B<WAIT::Format::CPAN>), because its placement in F<./CPAN/> duplicates
-the real libraries that will get installed; also, the directory name
-F<./CPAN/> may confuse users.
-
-On the other hand, putting included, for-build-time-only libraries in
-F<./inc/> is a normal practice, and there is little chance that a
-CPAN distribution will be called C<Something::inc>, so it's much safer
-to use.
-
-Also, it allows for other helper modules like B<Module::AutoInstall>
-to reside also in F<inc/>, and to make use of them.
-
-=head1 AUTHORS
-
-Audrey Tang E<lt>autrijus@autrijus.orgE<gt>
-
-=head1 COPYRIGHT
-
-Copyright 2003, 2004 Audrey Tang E<lt>autrijus@autrijus.orgE<gt>.
-
-This program is free software; you can redistribute it and/or modify it
-under the same terms as Perl itself.
-
-See L<http://www.perl.com/perl/misc/Artistic.html>
-
-=cut
+# Copyright 2008 - 2012 Adam Kennedy.

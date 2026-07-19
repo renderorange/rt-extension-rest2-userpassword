@@ -3,6 +3,8 @@ LICENSE
 Makefile.PL
 MANIFEST
 MANIFEST.SKIP
+META.json
+META.yml
 lib/RT/Extension/REST2/UserPassword.pm
 lib/RT/REST2/Resource/UserPassword.pm
 t/00_load.t

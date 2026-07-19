@@ -41,6 +41,8 @@ MYMETA\.yml$
 # Avoid build/release artifacts.
 ^docs/
 ^inc/
+^tools/
+^README$
 \.github/
 
 # Avoid test mock modules.

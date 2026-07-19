@@ -85,6 +85,7 @@ sub find_all_files {
             return unless $file =~ /\.pm$/;
 
             my $rel_path = File::Spec->abs2rel( $file, $dir . '/..' );
+            return if $rel_path =~ /^blib/;
             return if $rel_path =~ /^inc/;
             return if $rel_path =~ /^t/;
 

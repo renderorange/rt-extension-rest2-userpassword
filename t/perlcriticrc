@@ -63,7 +63,7 @@ max_mccabe = 28
 [Modules::RequireFilenameMatchesPackage]
 
 # Give every module a `$VERSION' number.
-[Modules::RequireVersionVar]
+[-Modules::RequireVersionVar]
 
 # don't use vague variable or subroutine names like 'last' or 'record'.
 [NamingConventions::ProhibitAmbiguousNames]

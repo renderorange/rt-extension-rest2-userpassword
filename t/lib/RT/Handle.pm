@@ -4,7 +4,18 @@ use strict;
 use warnings;
 
 sub cmp_version {
-    my ( $a, $b ) = @_;
+    my $caller = caller();
+    my ($a, $b);
+    {
+        no strict 'refs';
+        $a = ${$caller . '::a'};
+        $b = ${$caller . '::b'};
+    }
+
+    unless (defined $a && defined $b) {
+        ($a, $b) = @_;
+    }
+
     my @a = split /\./, $a;
     my @b = split /\./, $b;
     for my $i ( 0 .. 2 ) {
